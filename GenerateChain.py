@@ -1,52 +1,52 @@
 #!/bin/env python
-from argparse import ArgumentParser
-from collections import defaultdict, deque
-import json, re
+# usage: depth , inDictionary [, outJSON]
 
-# usage: depth , inDictionary, outJSON
-parser = ArgumentParser()
-parser.add_argument('depth', metavar='depth', type=int,
-  help='The length of any given chain')
-parser.add_argument('inFile', type=str,
-  help='Input dictionary file')
-parser.add_argument('outFile', type=str, nargs='?',
-  default='_markov.json', help='Output JSON file (default = _markov.json)')
-(args, unknown) = parser.parse_known_args()
+def generateChain(depth, inFile):
+  import collections, re
+  numChar, endChar = '#', '.'
+  regexWord = re.compile('^[a-z]+$')
+  depthRange = range(depth - 1)
+  padStr = ' ' * (depth - 1)
+  chars = collections.deque(maxlen = depth) # limit to depth chars
 
-class NestedDict(defaultdict):
-  def __getitem__(self, item):
-    try:
-      return dict.__getitem__(self, item)
-    except KeyError:
-      value = self[item] = type(self)()
-      return value
+  def NestedDict(): return collections.defaultdict(NestedDict)
+  rootNode = NestedDict() # create a tree of dictionaries
+  rootNode['depth'] = depth # set the depth of the chain
+  curNode, curChar = None, None
 
-numChar = '#' # holds the total number of words for that sequence
-endChar = '.' # holds the number of words that end with that sequence
+  with open(inFile, 'r') as f:
+    for word in f.read().split():
+      if regexWord.match(word):
+        chars.extend(padStr) # reset chars for the new word
+        for curChar in "%s%s" % (word, endChar):
+          chars.append(curChar) # add the next character
 
-rootNode = NestedDict()
-rootNode['depth'] = args.depth # set the depth of the chain
-with open(args.inFile) as f:
-  for word in f.read().split():
-    if re.match('^[a-z]+$', word.strip()):
-      chars = deque(maxlen = args.depth) # limit to args.depth chars
-      for w in range(args.depth):
-        chars.append(' ') # start with args.depth spaces
+          curNode = rootNode # start at the root of the tree
+          for n in depthRange: # traverse down the tree
+            curNode = curNode[chars[n]]
 
-      # append endChar to the word before processing it
-      for character in (word + endChar):
-        chars.append(character) # add the next character
+          # increment the total for the leaves on the branch
+          curNode[numChar] = curNode.get(numChar, 0) + 1
+          # increment the total for the current leaf
+          curNode[curChar] = curNode.get(curChar, 0) + 1
+  return rootNode
 
-        node = rootNode # start at the root of the tree
-        for i in range(args.depth-1):
-          node = node[chars[i]] # traverse down the tree
+def writeToFile(chain, outFile):
+  with open(outFile, 'w') as f:
+    import json # write the json data to outFile
+    # the json data will be sorted and compressed to save space
+    f.write(json.dumps(chain, sort_keys=True, separators=(',',':')))
 
-        # increment the total for the leaves on the branch
-        node[numChar] = node.get(numChar, 0) + 1
-        # increment the total for the current leaf
-        node[character] = node.get(character, 0) + 1
+def main():
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('depth', metavar='depth', type=int, help='The length of any given chain')
+  parser.add_argument('inFile', type=str, help='Input dictionary file')
+  parser.add_argument('outFile', type=str, nargs='?', default='_markov.json', help='Output JSON file (default = _markov.json)')
+  (args, unknown) = parser.parse_known_args()
 
-with open(args.outFile, 'w') as f:
-  # print the json data to outFile
-  # the json data will be sorted and compressed to save space
-  f.write(json.dumps(rootNode, sort_keys=True, separators=(',',':')))
+  chain = generateChain(args.depth, args.inFile)
+  writeToFile(chain, args.outFile)
+
+if __name__ == "__main__":
+  main()
